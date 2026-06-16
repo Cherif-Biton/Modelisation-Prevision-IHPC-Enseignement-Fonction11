@@ -1,0 +1,2193 @@
+---
+title: "Project_enseignement"
+author: "Biton Cherif SAKO-OUATTARA J.Ulrich/ 10-01-2026"
+date: "2026-03-22"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+library(here)
+
+# Working directory
+knitr::opts_knit$set(root.dir = here::here())
+
+# Options des chunks avec fig.path absolu
+knitr::opts_chunk$set(
+  echo       = TRUE,
+  warning    = FALSE,
+  message    = FALSE,
+  fig.path   = paste0(here::here("Output/figures"), "/"),
+  fig.width  = 8,
+  fig.height = 5,
+  dpi        = 300,
+  dev        = c("png", "pdf")
+)
+
+
+```
+
+# Installation et chargement des packages
+
+```{r}
+
+packages <- c("tidyverse", "readxl", "forecast", 
+              "tseries", "xtable", "rprojroot", "strucchange")
+
+installed <- rownames(installed.packages())
+to_install <- packages[!packages %in% installed]
+
+if (length(to_install) > 0) {
+  install.packages(to_install)
+}
+library(lmtest)
+library(rprojroot)
+library(tidyverse)
+library(readxl)
+library(forecast)
+library(tseries)
+library(xtable)      
+library(strucchange)
+library(kableExtra)
+
+
+```
+
+# Fonction utilitaire : exporter un tableau en .tex
+
+```{r fonction_tableau, include=FALSE}
+save_latex_table <- function(x, filename, caption = "", label = "") {
+  filepath <- here::here("Output/tables", paste0(filename, ".tex"))
+  
+  kable(
+    x,
+    format    = "latex",
+    booktabs  = TRUE,
+    caption   = caption,
+    label     = label,
+    linesep   = ""
+  ) %>%
+    kable_styling(
+      latex_options = c("striped"),
+      stripe_color  = "gray!10",
+      full_width    = FALSE
+    ) %>%
+    
+    gsub(pattern     = "\\\\begin\\{table\\}.*?\\n", 
+         replacement = "", 
+         x           = .) %>%
+    gsub(pattern     = "\\\\end\\{table\\}", 
+         replacement = "", 
+         x           = .) %>%
+    gsub(pattern     = "\\\\caption\\{.*?\\}\\n",
+         replacement = "",
+         x           = .) %>%
+    writeLines(filepath)
+  
+  message("Table sauvegardée : ", filepath)
+}
+```
+
+#Chargement de la base de données
+
+```{r}
+
+# Détection automatique du fichier dans Data/
+data_file <- list.files(
+  path       = "Data/",              
+  pattern    = "\\.(csv|xlsx|xls)$",
+  full.names = TRUE
+)[1]
+
+if (grepl("\\.csv$", data_file)) {
+  enseignement <- read.csv(data_file, sep = ",", encoding = "UTF-8")
+} else {
+  enseignement <- read_excel(data_file)
+}
+
+message("Fichier chargé : ", data_file)
+
+```
+
+# Visualisation de la série
+
+```{r graphe_serie_brute}
+
+# Création de la série
+base_ensei <- ts(enseignement$Value, start=c(2015,1), frequency=12)
+
+# Plot principal
+plot(base_ensei,
+     main = "l'IHPC des services d'enseignements ",
+     xlab = "Année",
+     ylab = " Les valeurs de l'indice (base 2023 = 100)",
+     col  = "darkblue")
+
+
+
+segments(x0 = 2017 + 1/12, y0 = 88.6, 
+         x1 = 2017 + 1/12, y1 = 104, 
+         col = "orange", lty = 4, lwd = 3)
+
+segments(x0 = 2018 + 2/12, y0 = 89.8, 
+         x1 = 2018 + 2/12, y1 = 104, 
+         col = "green", lty = 4, lwd = 3)
+
+segments(x0 = 2021 + 10/12, y0 = 97.6, 
+         x1 = 2021 + 10/12, y1 = 104, 
+         col = "red", lty = 4, lwd = 3)
+
+segments(x0 = 2025 + 1/12, y0 = 95, 
+         x1 = 2025 + 1/12, y1 = 104, 
+         col = "green", lty = 4, lwd = 3)
+
+# Ajoute des légendes directement sur les lignes
+text(x = 2016 + 12/12, y = 89.6, 
+     labels = "Réforme du continuum ", 
+     col = "black", srt = 90, adj = -1, cex=0.7)
+text(x = 2018 + 0.5/12, y = 89.5, 
+     labels = "Mise à jour des des certifications et diplômes", 
+     col = "black", srt = 90, adj = -.1, cex=0.7)
+text(x = 2021 + 8/12, y = 93.9, 
+     labels = "Effet post-COVID-19", 
+     col = "black", srt = 90, adj = -.5, cex=0.7)
+text(x = 2024 + 12/12, y = 95, 
+     labels = "Base 2023 pondérations", 
+     col = "black", srt = 90, adj = 0.2, cex=0.7)
+
+
+```
+
+# Préparation et description de la série de janvier 2015 à mai 2025.
+
+```{r graph de 2015 jav -2025 mai }
+base1 <- window(base_ensei, start= c(2015,1), end= c(2025,5))
+plot(base1, 
+     main = "l'IHPC des services d'enseignements",
+     xlab = "Année",
+     ylab = "IHPC de la fonction d'enseignement (base 2023 = 100)",
+     col  = "blue")
+points(window(base_ensei, start= c(2015,1), frequency=1), 
+       pch = 16, cex=1,col=4)# Mois de janvier
+points(window(base_ensei, start= c(2015,7), frequency=1), 
+       pch = 16, cex=1,col=2)# Mois de juillet 
+points(window(base_ensei, start= c(2015,10), frequency=1), 
+       pch = 16, cex=1,col=3)# Mois d'octobre
+legend("topleft", pch=16, col= c(4,2,3), legend = c("Janvier", "Juillet", "Octobre"))
+
+
+
+```
+
+# Vérification de la saisonnalité et de la tendance
+
+La visualisation de "plot(decompose(base_ensei, type = "multiplicative"))", nous permettra d'approuver ou de rejeter nos dires sur la saisonnalité et la tendance.
+
+```{r graph_saisonnalité_tendance}
+
+plot(decompose(base1, type = "additive"))
+
+# plot(decompose(base_ensei, type = "additive")), donne une décomposition de la série en plusieurs partie: 
+   # - Observed donnne le graph original 
+   # - Trend, la tendance
+   # - Seasonal, la saisonnalité
+   # - Random, les résidus
+
+```
+
+# Fonction de lissage par la méthode de Holt-Winters
+
+# Initialisation des paramètre
+
+```{r lissage_initial}
+# Sur la 1ere annee (p=12 mois), on calcule :
+#   => niveau initial
+#   a_p = Ybar_p + (p-1)/2 * b_p
+#   => pente de la droite MCO sur la 1ere annee
+#   b_p = [12/(p(p^2-1))] * [sum_{k=1}^{p} k*Y_k - p(p+1)/2 * Ybar_p]
+#   => coefficients saisonniers initiaux
+#   S_j = Y_j - a_p - b_p*(j-p)/p  pour j=1,...,p
+p <- 12
+valeur_initiale <- window(base1, start = c(2015,1), end = c(2015,12))
+
+# Pente initiale
+b_p <- (12 / (p * (p^2 - 1))) * (sum((1:p) * as.numeric(valeur_initiale)) - 
+        (p * (p + 1) / 2) * mean(valeur_initiale))
+
+# Niveau initial
+a_p <- mean(valeur_initiale) + ((p - 1) / 2) * b_p
+
+# Coefficients saisonniers
+sj <- as.numeric(valeur_initiale) - a_p - b_p * ((1:p) - p) / p
+
+# ── Tableau 1 : Paramètres initiaux ──────────────────────────
+df_params <- data.frame(
+  Paramètre   = c("Niveau initial", 
+                  "Pente initiale "),
+  Valeur      = c(round(a_p, 4), 
+                  round(b_p, 6))
+)
+
+save_latex_table(
+  x        = df_params,
+  filename = "tab_params_initiaux",
+  caption  = "Paramètres initiaux de Holt-Winters (année 2015)",
+  label    = "tab:params_initiaux"
+)
+
+# ── Tableau 2 : Coefficients saisonniers ─────────────────────
+df_sj <- data.frame(
+  Mois                  = c("Jan","Fév","Mar","Avr","Mai","Jun",
+                             "Jul","Aoû","Sep","Oct","Nov","Déc"),
+  Coefficient   = round(sj, 4),
+  check.names           = FALSE
+)
+
+# Ligne de somme
+df_sj_total <- rbind(
+  df_sj,
+  data.frame(
+    Mois                = "Somme",
+    Coefficient = round(sum(sj), 6),
+    check.names         = FALSE
+  )
+)
+
+save_latex_table(
+  x        = df_sj_total,
+  filename = "tab_coeff_saisonniers_init",
+  caption  = "Coefficients saisonniers initiaux (année 2015)",
+  label    = "tab:coeff_saisonniers_init"
+)
+
+# ── Affichage console ─────────────────────────────────────────
+cat("INITIALISATION HOLT-WINTERS (année 2015)\n\n")
+cat(sprintf("Niveau initial  a_p = %.4f\n", a_p))
+cat(sprintf("Pente initiale  b_p = %.6f  (%.4f pt/mois)\n", b_p, b_p))
+cat("\nCoefficients saisonniers initiaux S_j :\n")
+cat(sprintf("  %-3s : %+.4f\n",
+    c("Jan","Fév","Mar","Avr","Mai","Jun",
+      "Jul","Aoû","Sep","Oct","Nov","Déc"),
+    round(sj, 4)))
+cat(sprintf("\nSomme des S_j = %.6f \n", sum(sj)))
+```
+
+## Les mises a jour et la prevision
+
+```{r Les mises à jour}
+# BOUCLE DE MISE A JOUR -- Algorithme Holt-Winters
+l <- length(base1)
+Y <- as.numeric(base1)
+t <- 1:l
+
+ALPHA <- 0.99   # niveau   : grande importance aux observations récentes.
+BETA  <- 0.125   # tendance  : tres rigide (tendance lente et stable)
+DELTA <- 1   # saisonnalite : forte
+
+
+# Initialisation
+a_T <- numeric(l);  a_T[p] <- a_p
+b_T <- numeric(l);  b_T[p] <- b_p
+S_T <- c(sj, rep(NA, l - length(sj)))
+Y_est <- rep(NA, l)
+Y_est[1:p] <- a_p + b_p + sj[1:p]
+
+# Boucle principale
+for (t in (p + 1):l) {
+  a_T[t] <- ALPHA * (Y[t] - S_T[t - p]) + (1 - ALPHA) * (a_T[t-1] + b_T[t-1])
+  b_T[t] <- BETA  * (a_T[t] - a_T[t-1]) + (1 - BETA)  * b_T[t-1]
+  S_T[t] <- DELTA * (Y[t] - a_T[t])      + (1 - DELTA) * S_T[t - p]
+  if (t < l) Y_est[t + 1] <- a_T[t] + b_T[t] + S_T[t - p + 1]
+}
+
+# Conversion en séries temporelles
+Y_est_ts <- ts(Y_est, start = c(2015,1), end = c(2025,5), frequency = 12)
+
+# Prévision Juin-Sep 2025
+idx_sais    <- S_T[c(l-12+6, l-12+7, l-12+8, l-12+9)]
+Y_pred_liss <- a_T[l] + b_T[l] * (1:4) + idx_sais
+Y_pred_liss_ts <- ts(Y_pred_liss, start = c(2025,6), end = c(2025,9), frequency = 12)
+
+
+# ── Tableau 1 : Coefficients de lissage ──────────────────────
+df_coeffs <- data.frame(
+  Paramètre   = c("alpha (Niveau)",
+                  "beta (Tendance)",
+                  "delta (Saisonnalité)"),
+  Valeur      = c(ALPHA, BETA, DELTA),
+  Interprétation = c("Grande réactivité aux observations récentes",
+                     "Tendance lente et stable",
+                     "Saisonnalité entièrement mise à jour")
+)
+
+save_latex_table(
+  x        = df_coeffs,
+  filename = "tab_coeff_lissage",
+  caption  = "Coefficients de lissage retenus pour Holt-Winters",
+  label    = "tab:coeff_lissage"
+)
+
+# ── Tableau 2 : Paramètres finaux ────────────────────────────
+df_final <- data.frame(
+  Paramètre = c("Niveau final ",
+                "Pente finale "),
+  Valeur    = c(round(a_T[l], 4),
+                round(b_T[l], 6))
+)
+
+save_latex_table(
+  x        = df_final,
+  filename = "tab_params_finaux",
+  caption  = "Paramètres finaux de Holt-Winters",
+  label    = "tab:params_finaux"
+)
+
+# ── Tableau 3 : Coefficients saisonniers finaux ──────────────
+df_sT <- data.frame(
+  Mois                = c("Jan","Fév","Mar","Avr","Mai","Jun",
+                           "Jul","Aoû","Sep","Oct","Nov","Déc"),
+  Coefficient = round(S_T[(l-11):l], 4),
+  check.names         = FALSE
+)
+
+df_sT_total <- rbind(
+  df_sT,
+  data.frame(
+    Mois                = "Somme",
+    Coefficient = round(sum(S_T[(l-11):l]), 6),
+    check.names         = FALSE
+  )
+)
+
+save_latex_table(
+  x        = df_sT_total,
+  filename = "tab_coeff_saisonniers_finaux",
+  caption  = "Coefficients saisonniers finaux",
+  label    = "tab:coeff_saisonniers_finaux"
+)
+
+# ── Tableau 4 : Prévisions Juin-Sep 2025 ────────────────────
+df_pred <- data.frame(
+  Mois         = c("Juin 2025", "Juillet 2025",
+                   "Août 2025", "Septembre 2025"),
+  `$\\hat{Y}$` = round(Y_pred_liss, 4),
+  check.names  = FALSE
+)
+
+save_latex_table(
+  x        = df_pred,
+  filename = "tab_prevision_lissage",
+  caption  = "Prévisions par lissage exponentiel de Holt-Winters (Juin--Septembre 2025)",
+  label    = "tab:prevision_lissage"
+)
+
+# ── Affichage console ────────────────────────────────────────
+cat(sprintf("Niveau final  a_T = %.4f\n", a_T[l]))
+cat(sprintf("Pente finale  b_T = %.6f\n", b_T[l]))
+```
+
+# Vérifions si le bruit est blanc ou pas
+
+```{r tests_residus_hw}
+
+# ── Reconstruction correcte des résidus ──────────────────────
+# t est écrasé par la boucle → recréer le vecteur temps
+t_vect  <- 1:l
+residus <- as.numeric(base1) - as.numeric(Y_est_ts)
+
+# Retirer les NA éventuels pour les tests
+residus_clean <- residus[!is.na(residus)]
+t_clean       <- t_vect[!is.na(residus)]
+
+# ── TEST 0 — Centralité (Student) ────────────────────────────
+# H0 : moyenne des résidus = 0
+cat("\nCENTRALITE (t de Student)\n")
+t_test <- t.test(residus_clean, mu = 0)
+print(t_test)
+if (t_test$p.value > 0.05) {
+  cat("p-value =", round(t_test$p.value, 6),
+      "> 0.05 → Moyenne des résidus = 0 à 95%\n")
+} else {
+  cat("p-value =", round(t_test$p.value, 6),
+      "< 0.05 → Moyenne des résidus ≠ 0 à 95%\n")
+}
+
+# ── TEST 1 — Homoscédasticité (Breusch-Pagan) ────────────────
+# H0 : résidus homoscédastiques
+# bptest() nécessite un objet lm → on régresse résidus ~ t
+cat("\nHomoscédasticité (Breusch-Pagan)\n")
+lm_res <- lm(residus_clean ~ t_clean)
+bp     <- bptest(lm_res)
+print(bp)
+if (bp$p.value > 0.05) {
+  cat("p-value =", round(bp$p.value, 6),
+      "> 0.05 → Résidus homoscédastiques à 95%\n")
+} else {
+  cat("p-value =", round(bp$p.value, 6),
+      "< 0.05 → Hétéroscédasticité détectée à 95%\n")
+}
+
+# ── TEST 2 — Indépendance résidus / t ─────────────────────────
+# H0 : corrélation nulle entre résidus et t
+cat("\nIndépendance résidus / variable exogène\n")
+cor_test <- cor.test(residus_clean, t_clean)
+print(cor_test)
+if (cor_test$p.value > 0.05) {
+  cat("p-value =", round(cor_test$p.value, 6),
+      "> 0.05 → Résidus indépendants de t à 95%\n")
+} else {
+  cat("p-value =", round(cor_test$p.value, 6),
+      "< 0.05 → Dépendance détectée à 95%\n")
+}
+
+# ── TEST 3 — Autocorrélation (Ljung-Box) ─────────────────────
+# H0 : pas d'autocorrélation jusqu'au lag 12
+cat("\nAutocorrélation (Ljung-Box)\n")
+lb <- Box.test(residus_clean, lag = 12, type = "Ljung-Box")
+print(lb)
+if (lb$p.value > 0.05) {
+  cat("p-value =", round(lb$p.value, 6),
+      "> 0.05 → Résidus non autocorrélés à 95%\n")
+} else {
+  cat("p-value =", round(lb$p.value, 6),
+      "< 0.05 → Autocorrélation détectée à 95%\n")
+}
+
+# ── TEST 4 — Normalité (Shapiro-Wilk) ────────────────────────
+# H0 : résidus normalement distribués
+cat("\nNormalité (Shapiro-Wilk)\n")
+sw <- shapiro.test(residus_clean)
+print(sw)
+if (sw$p.value > 0.05) {
+  cat("p-value =", round(sw$p.value, 6),
+      "> 0.05 → Résidus normalement distribués à 95%\n")
+} else {
+  cat("p-value =", round(sw$p.value, 6),
+      "< 0.05 → Normalité rejetée à 95%\n")
+}
+
+# ── Tableau récapitulatif ─────────────────────────────────────
+resultats_tests_hw <- data.frame(
+  Test       = c("Centralité (Student)",
+                 "Homoscédasticité (Breusch-Pagan)",
+                 "Indépendance résidus / t (cor.test)",
+                 "Autocorrélation (Ljung-Box)",
+                 "Normalité (Shapiro-Wilk)"),
+  Statistique = round(c(t_test$statistic,
+                         bp$statistic,
+                         cor_test$statistic,
+                         lb$statistic,
+                         sw$statistic), 4),
+  `p-value`  = round(c(t_test$p.value,
+                        bp$p.value,
+                        cor_test$p.value,
+                        lb$p.value,
+                        sw$p.value), 7),
+  Décision   = ifelse(
+    c(t_test$p.value, bp$p.value, cor_test$p.value,
+      lb$p.value, sw$p.value) > 0.05,
+    "Ne pas rejeter $H_0$",
+    "Rejeter $H_0$"),
+  check.names = FALSE
+)
+
+save_latex_table(
+  x        = resultats_tests_hw,
+  filename = "tab_resultats_tests_holt_winters",
+  caption  = "Tests de validation des résidus --- Lissage de Holt-Winters",
+  label    = "tab:resultats_tests_holt_winters"
+)
+```
+
+## Graphique des previsions par lissage
+
+```{r graphe_prevision_lissage}
+# Palette professionnelle
+col_obs    <- "#2C3E50"   # Bleu marine foncé  → série observée
+col_est    <- "#2980B9"   # Bleu ciel          → estimations
+col_prev   <- "#E74C3C"   # Rouge vif          → prévisions
+col_ic     <- "#E74C3C44" # Rouge plus visible → zone IC
+col_reel   <- "#27AE60"   # Vert émeraude      → valeurs réelles test
+col_grille <- "#ECF0F1"   # Gris très clair    → grille
+
+# IC
+rmse_app   <- sqrt(mean((base1[1:l] - Y_est[1:l])^2, na.rm = TRUE))
+t_prev     <- as.numeric(time(Y_pred_liss_ts))
+bsup_liss  <- as.numeric(Y_pred_liss_ts) + 1.96 * rmse_app
+binf_liss  <- as.numeric(Y_pred_liss_ts) - 1.96 * rmse_app
+serie_test <- window(base_ensei, start = c(2025,6), end = c(2025,9))
+Y_est_ts   <- ts(Y_est, start = c(2015,1), end = c(2025,5), frequency = 12)
+
+# ── Fond et marges ───────────────────────────────────────────
+par(bg    = "white",
+    mar   = c(5, 5, 4, 2),
+    family = "serif")
+
+# ── Tracé principal ──────────────────────────────────────────
+plot(base1,
+     main = paste0("Lissage Holt-Winters Additif\n",
+                   "(alpha=",ALPHA,", beta=",BETA,", delta=",DELTA,")"),
+     xlab = "Année",
+     ylab = "IHPC (base 2023 = 100)",
+     col  = col_obs,
+     lwd  = 2,
+     xlim = c(2015, 2026.2),
+     ylim = c(83, 112),   # ylim élargi pour bien voir l'IC
+     xaxt = "n",
+     yaxt = "n",
+     bty  = "n")
+
+axis(1, at = seq(2015, 2026), labels = seq(2015, 2026),
+     las = 2, cex.axis = 0.82)
+axis(2, las = 1, cex.axis = 0.85,
+     col.axis = "gray30", col = "gray70", tck = -0.02)
+
+# ── Grille ───────────────────────────────────────────────────
+abline(h   = seq(83, 112, by = 5),
+       col = col_grille, lty = 1, lwd = 1.2)
+abline(v   = seq(2015, 2026),
+       col = col_grille, lty = 1, lwd = 1.2)
+
+# ── Série observée ───────────────────────────────────────────
+lines(base1, col = col_obs, lwd = 2)
+
+# ── Zone IC bien visible ──────────────────────────────────────
+polygon(c(t_prev, rev(t_prev)),
+        c(bsup_liss, rev(binf_liss)),
+        col    = col_ic,
+        border = NA)
+
+# ── Bornes IC en pointillé ───────────────────────────────────
+lines(t_prev, bsup_liss,
+      col = col_prev, lty = 3, lwd = 1.5)
+lines(t_prev, binf_liss,
+      col = col_prev, lty = 3, lwd = 1.5)
+
+# ── Estimations ──────────────────────────────────────────────
+lines(Y_est_ts, col = col_est, lty = 4, lwd = 1.5)
+
+# ── Prévisions en POINTILLÉ ──────────────────────────────────
+lines(t_prev, as.numeric(Y_pred_liss_ts),
+      col = col_prev, lty = 2, lwd = 2.5)  # lty=2 → pointillé
+
+# ── Valeurs réelles en LIGNE CONTINUE ────────────────────────
+lines(serie_test, col = col_reel, lty = 1, lwd = 2.5)  # lty=1 → continu
+
+
+# ── Ligne verticale fin apprentissage ────────────────────────
+abline(v   = 2025 + 5/12,
+       col = "gray50", lty = 2, lwd = 1.2)
+text(x      = 2025 + 5/12,
+     y      = 100,
+     labels = "Début de la prévision",
+     col    = "gray50",
+     cex    = 0.7,
+     pos    = 2,    # pos=2 → texte à gauche de la ligne
+     srt    = 90)
+
+# ── Légende ──────────────────────────────────────────────────
+legend("topleft",
+       legend = c("IHPC observé",
+                  "Valeurs estimées",
+                  "Prévisions Juin-Sep 2025",
+                  "IC à 95 %",
+                  "Valeurs réelles Juin-Sep 2025"),
+       col    = c(col_obs, col_est, col_prev, col_prev, col_reel),
+       lty    = c(1, 2, 2, NA, 1),
+       lwd    = c(2, 1.5, 2.5, NA, 2.5),
+       pch    = c(NA, NA, 19, NA, 17),
+       fill   = c(NA, NA, NA, col_ic, NA),
+       border = c(NA, NA, NA, col_prev, NA),
+       bty    = "n",
+       cex    = 0.78,
+       x.intersp = 0.8)
+
+# ── Cadre externe léger ──────────────────────────────────────
+box(col = "gray80", lwd = 0.8)
+```
+
+# Evaluation -- EQM et couverture
+
+```{r EQM et couverture}
+
+# ── Tableau 1 : Prévisions vs Valeurs observées ──────────────
+mois_pred    <- c("Juin 2025","Juillet 2025","Août 2025","Septembre 2025")
+#serie_test <- window(base_ensei, start = c(2025,6), end = c(2025,9))
+
+erreurs_liss_HOLT_WINTERS <- as.numeric(serie_test) - Y_pred_liss
+
+df_liss_HOLT_WINTERS <- data.frame(
+  Mois                     = mois_pred,
+  Valeur_prévue          = round(Y_pred_liss, 4),
+  Valeur_observée        = round(as.numeric(serie_test), 4),
+  Erreur          = round(erreurs_liss_HOLT_WINTERS, 4),
+  
+  check.names = FALSE
+)
+
+save_latex_table(
+  x        = df_liss_HOLT_WINTERS,
+  filename = "tab_prevision_vs_observe_HOLT_WINTERS",
+  caption  = "Prévisions et valeurs observées --- Lissage de Holt-Winters 
+              (Juin--Septembre 2025)",
+  label    = "tab:prevision_vs_observe_HOLT_WINTERS"
+)
+
+# ── Tableau 2 : EQM  ──────────────────────────────────
+EQM_liss_HOLT_WINTERS  <- mean(erreurs_liss_HOLT_WINTERS^2)
+
+rmse_liss_HOLT_WINTERS <- sqrt(EQM_liss_HOLT_WINTERS)
+
+indicateur <- c("EQM", "RMSE")
+valeur <- c(EQM_liss_HOLT_WINTERS , rmse_liss_HOLT_WINTERS)
+
+
+ df_eqm_HOLT_WINTERS <- data.frame(
+  `Indicateur`       = indicateur,
+  `Valeur`      = round(valeur, 6),
+  check.names = FALSE
+  )
+
+
+save_latex_table(
+  x        = df_eqm_HOLT_WINTERS,
+  filename = "tab_eqm_HOLT_WINTERS",
+  caption  = "Erreur quadratique moyenne--HOLT-WINTERS",
+  label    = "tab:eqm_HOLT_WINTERS"
+)
+
+# ── Tableau 3 : Couverture de l'IC à 95 % ───────────────────
+#rmse_app   <- sqrt(mean((base1[1:l] - Y_est[1:l])^2, na.rm = TRUE))
+IC_inf_liss_HOLT_WINTERS <- Y_pred_liss - 1.96 * rmse_app
+IC_sup_liss_HOLT_WINTERS <- Y_pred_liss + 1.96 * rmse_app
+dans_IC_HOLT_WINTERS     <- as.numeric(Y_pred_liss) >= IC_inf_liss_HOLT_WINTERS &
+               as.numeric(Y_pred_liss) <= IC_sup_liss_HOLT_WINTERS
+couverture_liss_HOLT_WINTERS <- mean(dans_IC_HOLT_WINTERS)
+
+df_couverture_HOLT_WINTERS <- data.frame(
+  Mois              = mois_pred,
+  `Valeur prédite` = round(as.numeric(Y_pred_liss), 4),
+  `Borne inf. IC`   = round(IC_inf_liss_HOLT_WINTERS, 4),
+  `Borne sup. IC`   = round(IC_sup_liss_HOLT_WINTERS, 4),
+  `Dans l'IC`       = ifelse(dans_IC_HOLT_WINTERS, "Oui", "Non"),
+  check.names       = FALSE
+)
+
+# Ligne de synthèse
+df_couverture_total_HOLT_WINTERS <- rbind(
+  df_couverture_HOLT_WINTERS,
+  data.frame(
+    Mois              = "Couverture globale",
+    `Valeur prédite` = NA,
+    `Borne inf. IC`   = NA,
+    `Borne sup. IC`   = NA,
+    `Dans l'IC`       = paste0(round(couverture_liss_HOLT_WINTERS * 100, 0),
+                                "% (",sum(dans_IC_HOLT_WINTERS),"/4)}"),
+    check.names       = FALSE
+  )
+)
+#Sauvegarde
+save_latex_table(
+  x        = df_couverture_total_HOLT_WINTERS,
+  filename = "tab_couverture_ic_HOLT_WINTERS",
+  caption  = "Couverture de l'intervalle de confiance à 95%---HOLT-WINTERS",
+  label    = "tab:couverture_ic_HOLT_WINTERS"
+)
+
+# ── Affichage console ────────────────────────────────────────
+cat("=== ÉVALUATION DU LISSAGE HOLT-WINTERS ===\n\n")
+cat(sprintf("  EQM              = %.6f\n", EQM_liss_HOLT_WINTERS))
+cat(sprintf("  Couverture IC 95%% = %.0f%%  (%d/4 obs. dans l'IC)\n",
+            couverture_liss_HOLT_WINTERS * 100, sum(dans_IC_HOLT_WINTERS)))
+```
+
+# MODELISATION PAR DECOMPOSITION
+
+# Calcul du pourcentage de l'évolution de l'indice de 2015 à 2025
+
+Le calcul du taux de variation est de voir l'évolution de l'indice de la série sur la période d'étude.
+
+```{r stats_desc}
+# Calculs
+base2 <- window(base_ensei, start = c(2015,1), end = c(2022,12))
+
+minimum       <- min(base1)
+maximum       <- max(base1)
+taux_variation <- (maximum - minimum) / maximum * 100
+
+# Data frame
+df_stats <- data.frame(
+  Statistique = c("Minimum",
+                  "Maximum",
+                  "Taux de variation (\\%)"),
+  Valeur      = c(round(minimum, 4),
+                  round(maximum, 4),
+                  round(taux_variation, 4))
+)
+
+# Sauvegarde
+save_latex_table(
+  x        = df_stats,
+  filename = "tab_stats_desc",
+  caption  = "Statistiques descriptives de la série \\IHPC{} Enseignement 
+              (Janvier 2015 -- Mai 2025)",
+  label    = "tab:stats_desc"
+)
+```
+
+#Le test de Buys-Ballot pour vérification du modèle additif
+
+```{r}
+buys_ballot <- matrix(base2, ncol = 12, byrow = TRUE)
+moyennes <- apply(buys_ballot, 2, mean, na.rm = TRUE)
+ecarts_types <- apply(buys_ballot, 2, sd, na.rm = TRUE)
+
+
+modele_additif <- data.frame(
+  Mois = month.abb,
+  Moyenne = round(moyennes,2),
+  Ecart_Type = round(ecarts_types,2)
+)
+print(modele_additif)
+
+# Sauvegarde
+save_latex_table(
+  x        = modele_additif,
+  filename = "tab_modele_additif",
+  caption  = " Evolution de la moyenne et de sigma chaque mois",
+  label    = "tab:modele_additif"
+)
+
+```
+
+# Vérification de la continuité de la série sur la période d'étude
+
+```{r}
+# Détection automatique des ruptures
+breakpoints(base2 ~ 1)
+
+ #breakpoints(base_ensei ~ 1) vient du package strucchange en R. Il sert à détecter automatiquement des ruptures structurelles dans une série temporelle. En d'autre terme, le modèle teste s’il existe des points dans le temps où la série “casse” et passe à un autre régime (par exemple, une moyenne différente avant et après une date).
+
+
+```
+
+#Moyenne Mobile (MM)
+
+```{r graph_moyenne_mobiel}
+
+moy_mob <- function(serie, ordre, type, poids = NULL, plot = TRUE) {
+  n <- length(serie)
+  
+  # --- Vérifications ---
+  if (!type %in% c("MMS", "MMP")) stop("Le type doit être MMS ou MMP")
+  if (ordre > n) stop("L'ordre ne peut pas dépasser la longueur de la série")
+  
+  resultat <- rep(NA, n)
+  
+  # --- MMS ---
+  if (type == "MMS") {
+    if (ordre %% 2 == 0) {
+      coef <- c(1/2, rep(1, ordre - 1), 1/2) / ordre
+      for (i in (ordre/2 + 1):(n - ordre/2)) {
+        resultat[i] <- sum(coef * serie[(i - ordre/2):(i + ordre/2)])
+      }
+    } else {
+      coef <- rep(1, ordre) / ordre
+      for (i in ((ordre + 1)/2):(n - (ordre - 1)/2)) {
+        resultat[i] <- sum(coef * serie[(i - (ordre-1)/2):(i + (ordre-1)/2)])
+      }
+    }
+  }
+  
+  # --- MMP ---
+  if (type == "MMP") {
+    if (is.null(poids)) stop("Tu dois fournir un vecteur de poids pour la MMP")
+    if (length(poids) != ordre) stop("Le vecteur poids doit avoir la même longueur que l'ordre")
+    
+    if (ordre %% 2 == 0) {
+      for (i in (ordre/2 + 1):(n - ordre/2)) {
+        resultat[i] <- sum(poids * serie[(i - ordre/2):(i + ordre/2)]) / sum(poids)
+      }
+    } else {
+      for (i in ((ordre + 1)/2):(n - (ordre - 1)/2)) {
+        resultat[i] <- sum(poids * serie[(i - (ordre-1)/2):(i + (ordre-1)/2)]) / sum(poids)
+      }
+    }
+  }
+  
+  # --- Transformer en série temporelle alignée ---
+  resultat_ts <- ts(resultat, start = start(serie), frequency = frequency(serie))
+  
+  # --- Graphique intégré ---
+  if (plot) {
+    plot(serie,
+    main = "l'IHPC des services d'enseignements",
+     xlab = "Année",
+     ylab = "IHPC de la fonction d'enseignement (base 2023 = 100)",
+     col="darkblue")
+    
+    lines(resultat_ts, col = "red", lwd = 1.5, lty = 2)
+    
+    legend("topleft",
+           legend = c("Série originale", paste("Moyenne mobile (", ordre, ")", sep="")),
+           col = c("darkblue", "red"),
+           lty = c(1, 2),
+           lwd = c(2, 1.5),
+           bty = "n")
+  }
+  
+  # --- Retourne toutes les valeurs de la MM ---
+  return(resultat)
+}
+
+# Exemple d'appel
+moy_mobile <- moy_mob(base2, 12, "MMS", plot = TRUE)
+
+# Affiche toutes les valeurs
+moy_mobile
+```
+
+#Les coefficients saisonniers
+
+```{r}
+# Les coefficients saisonniers
+coef_saisonniers <- function(serie, ordre, modele, frequence = 12) {
+  
+  # --- Vérifications ---
+  if (!modele %in% c("additif", "multiplicatif")) {
+    stop("Le modèle doit être 'additif' ou 'multiplicatif'")
+  }
+  
+  # --- Étape 1 : Estimation de la tendance via moy_mob ---
+  tendance <- moy_mob(serie, ordre, type = "MMS", plot = FALSE)
+  
+  # --- Étape 2 : Retirer la tendance ---
+  if (modele == "additif") {
+    serie_sans_tendance <- serie - tendance        
+  } else {
+    serie_sans_tendance <- serie / tendance        
+  }
+  
+  # --- Étape 3 : Moyenne par période ---
+  n <- length(serie)
+  mois <- rep(1:frequence, length.out = n)        # 1,2,...,12,1,2,...,12,...
+  
+  coefs <- tapply(serie_sans_tendance, mois, median, na.rm = TRUE)
+  
+  # --- Étape 4 : Normalisation ---
+  if (modele == "additif") {
+    coefs <- coefs - mean(coefs, na.rm = TRUE)   # somme = 0
+  } else {
+    coefs <- coefs / mean(coefs, na.rm = TRUE)   # moyenne = 1
+  }
+  
+  # --- Résultat ---
+  coefs <- round(as.numeric(coefs), 4)
+  names(coefs) <- month.abb  # Jan, Feb, ..., Dec
+  somme_coef <- sum(coefs)
+  
+  # --- Retourner un data.frame complet ---
+  coeff_saisonniers <- data.frame(
+    Mois = c(month.abb, "Somme"),
+    Coefficient = c(coefs, round(somme_coef, 4))
+  )
+  
+  # Sauvegarde 
+  save_latex_table(
+  x        = coeff_saisonniers,
+  filename = "tab_coeff_saisonniers_decomposition",
+  caption  = "Les coefficients saisonniers",
+  label    = "tab:coeff_saisonniers_decomposition"
+)
+  
+  return(coeff_saisonniers)
+}
+
+# Exemple d'appel
+coefficient_saisonniers <- coef_saisonniers(base2, 12, "additif")
+
+coefficient_saisonniers
+```
+
+# Déterminons la tendance
+
+```{r}
+tendance <- function(serie, ordre, modele) {
+  
+  n <- length(serie)
+  
+  # --- Étape 1 : Coefficients saisonniers ---
+  sai_estim <- coef_saisonniers(serie, ordre, modele)
+  sai_estim <- sai_estim$Coefficient[1:ordre]
+
+  # --- Étape 2 : Série CVS ---
+  t     <- 1:n
+  y_cvs <- as.numeric(serie) - rep(as.numeric(sai_estim), length.out = n)
+
+  # --- Étape 3 : Régression polynomiale ---
+  y_estim <- lm(y_cvs ~ t + I(t^2) + I(t^3) + I(t^4))
+  a <- y_estim$coefficients[1]
+  b <- y_estim$coefficients[2]
+  c <- y_estim$coefficients[3]
+  d <- y_estim$coefficients[4]
+  e <- y_estim$coefficients[5]
+  
+  # --- Résumé du modèle ---
+  cat("RÉSUMÉ DE LA RÉGRESSION\n")
+  print(summary(y_estim))
+  residus     <- residuals(y_estim)
+  summary_mod <- summary(y_estim)
+  
+  # --- DataFrame 1 : Coefficients + p-values + Fisher ---
+  coef_df <- as.data.frame(summary_mod$coefficients)
+  coef_df <- coef_df[, c("Estimate", "Pr(>|t|)")]
+  names(coef_df) <- c("Coefficient", "p_value_coef")
+  
+  fisher_p <- pf(summary_mod$fstatistic[1],
+                 summary_mod$fstatistic[2],
+                 summary_mod$fstatistic[3],
+                 lower.tail = FALSE)
+  
+  resultats_modele <- data.frame(
+    Variable     = rownames(coef_df),
+    Coefficient  = round(coef_df$Coefficient, 5),
+    `p-value`    = round(coef_df$p_value_coef, 6),
+    Décision     = ifelse(coef_df$p_value_coef < 0.05,
+                          "Significatif",
+                          "Non significatif"),
+    check.names  = FALSE
+  )
+  
+  resultats_modele <- rbind(
+    resultats_modele,
+    data.frame(
+      Variable    = "Test de Fisher (global)",
+      Coefficient = round(summary_mod$fstatistic[1], 4),
+      `p-value`   = round(fisher_p, 6),
+      Décision    = ifelse(fisher_p < 0.05,
+                           "Modèle globalement significatif",
+                           "Modèle non significatif"),
+      check.names = FALSE
+    )
+  )
+  
+  save_latex_table(
+    x        = resultats_modele,
+    filename = "tab_resultats_modele_polynomial",
+    caption  = "Significativité du modèle polynomial",
+    label    = "tab:resultats_modele_polynomial"
+  )
+  
+  # --- Tests sur les résidus ---
+  
+  # TEST 0 — Centralité (Student)
+  cat("\nCENTRALITE (t de Student)\n")
+  t_test <- t.test(residus, mu = 0)
+  print(t_test)
+  if (t_test$p.value > 0.05) {
+    cat("p-value =", round(t_test$p.value,6), "> 0.05 → Moyenne des résidus = 0 à 95%\n")
+  } else {
+    cat("p-value =", round(t_test$p.value,6), "< 0.05 → Moyenne des résidus ≠ 0 à 95%\n")
+  }
+  
+  # TEST 1 — Homoscédasticité (Breusch-Pagan)
+  cat("\nHomoscédasticité (Breusch-Pagan)\n")
+  bp <- bptest(y_estim)
+  print(bp)
+  if (bp$p.value > 0.05) {
+    cat("p-value =", round(bp$p.value,6), "> 0.05 → Résidus homoscédastiques à 95%\n")
+  } else {
+    cat("p-value =", round(bp$p.value,6), "< 0.05 → Hétéroscédasticité détectée à 95%\n")
+  }
+
+  # TEST 2 — Indépendance résidus / t
+  cat("\nIndépendance résidus / variable exogène\n")
+  cor_test <- cor.test(residus, t)
+  print(cor_test)
+  if (cor_test$p.value > 0.05) {
+    cat("p-value =", round(cor_test$p.value,6), "> 0.05 → Résidus indépendants de t à 95%\n")
+  } else {
+    cat("p-value =", round(cor_test$p.value,6), "< 0.05 → Dépendance détectée à 95%\n")
+  }
+  
+  # TEST 3 — Autocorrélation (Ljung-Box)
+  cat("\nAutocorrélation (Ljung-Box)\n")
+  lb <- Box.test(residus, lag = 12, type = "Ljung-Box")
+  print(lb)
+  if (lb$p.value > 0.05) {
+    cat("p-value =", round(lb$p.value,6), "> 0.05 → Résidus non autocorrélés à 95%\n")
+  } else {
+    cat("p-value =", round(lb$p.value,6), "< 0.05 → Autocorrélation détectée à 95%\n")
+  }
+  
+  # TEST 4 — Normalité (Shapiro-Wilk)
+  cat("\nNormalité (Shapiro-Wilk)\n")
+  sw <- shapiro.test(residus)
+  print(sw)
+  if (sw$p.value > 0.05) {
+    cat("p-value =", round(sw$p.value,6), "> 0.05 → Résidus normalement distribués à 95%\n")
+  } else {
+    cat("p-value =", round(sw$p.value,6), "< 0.05 → Normalité rejetée à 95%\n")
+  }
+  
+  # --- DataFrame 2 : Résultats des tests avec statistique + décision ---
+  resultats_tests <- data.frame(
+    Test        = c("Centralité (Student)",
+                    "Homoscédasticité (Breusch-Pagan)",
+                    "Indépendance résidus / t (Pearson)",
+                    "Autocorrélation (Ljung-Box)",
+                    "Normalité (Shapiro-Wilk)"),
+    Statistique = round(c(
+                    as.numeric(t_test$statistic),
+                    as.numeric(bp$statistic),
+                    as.numeric(cor_test$statistic),
+                    as.numeric(lb$statistic),
+                    as.numeric(sw$statistic)), 4),
+    `p-value`   = round(c(
+                    t_test$p.value,
+                    bp$p.value,
+                    cor_test$p.value,
+                    lb$p.value,
+                    sw$p.value), 7),
+    Décision    = ifelse(
+                    c(t_test$p.value, bp$p.value, cor_test$p.value,
+                      lb$p.value, sw$p.value) > 0.05,
+                    "Ne pas rejeter $H_0$",
+                    "Rejeter $H_0$"),
+    check.names = FALSE
+  )
+  
+  save_latex_table(
+    x        = resultats_tests,
+    filename = "tab_resultats_tests_polynomiale",
+    caption  = "Tests de validation des résidus --- Modèle polynomial",
+    label    = "tab:resultats_tests_polynomiale"
+  )
+  
+  return(list(
+    Modele = resultats_modele,
+    Tests  = resultats_tests
+  ))
+}
+
+# Appel
+res <- tendance(base2, 12, "additif")
+res$Modele
+res$Tests
+```
+
+# Prévision(décomposition)
+
+```{r prevision_decomposition , dev='png', fig.show='hold'}
+prevision <- function(serie, ordre, modele, h, annee_deb, periode_debu) {
+
+
+  serie_test <- window(base_ensei, start = c(2023,1), end = c(2025,9))
+
+    n <- length(serie)
+  
+  if (!modele %in% c("additif", "multiplicatif")) {
+    stop("Le modèle doit être 'additif' ou 'multiplicatif'")
+  }
+  if (h <= 0) {
+    stop("h doit être un entier positif")
+  }
+  
+  # ── Tendance et coefficients saisonniers ─────────────────────
+  tend      <- tendance(serie, ordre, modele)
+  tend      <- tend$Modele
+  sai_estim <- coef_saisonniers(serie, ordre, modele)
+  sai_estim <- as.numeric(sai_estim$Coefficient[1:ordre])
+  
+  # ── Série CVS ────────────────────────────────────────────────
+  if (modele == "additif") {
+    y_cvs <- as.numeric(serie) - rep(sai_estim, length.out = n)
+  } else {
+    y_cvs <- as.numeric(serie) / rep(sai_estim, length.out = n)
+  }
+  
+  # ── Modèle cubique ───────────────────────────────────────────
+  t    <- 1:n
+  y_lm <- lm(y_cvs ~ t  + I(t^2) + I(t^3) + I(t^4))
+  a    <- y_lm$coefficients[1]
+  b    <- y_lm$coefficients[2]
+  cc   <- y_lm$coefficients[3]
+  d    <- y_lm$coefficients[4]
+  e    <- y_lm$coefficients[5]
+  sigma <- summary(y_lm)$sigma
+  
+  # ── Tendance estimée ─────────────────────────────────────────
+  tendance_estimee <- a + b*t + cc*t^2 + d*t^3 + e*t^4
+  
+  # ── Série reconstruite ───────────────────────────────────────
+  if (modele == "additif") {
+    serie_recon <- tendance_estimee + rep(sai_estim, length.out = n)
+  } else {
+    serie_recon <- tendance_estimee * rep(sai_estim, length.out = n)
+  }
+  
+  # ── Prévision ────────────────────────────────────────────────
+  t_futur         <- (n + 1):(n + h)
+  tendance_future <- a + b*t_futur + cc*t_futur^2 + d*t_futur^3 + e*t_futur^4
+  mois_futur      <- ((t_futur - 1) %% 12) + 1
+  sai_futur       <- sai_estim[mois_futur]
+  
+  if (modele == "additif") {
+    prev       <- tendance_future + sai_futur
+    prev_lower <- prev - 1.96 * sigma
+    prev_upper <- prev + 1.96 * sigma
+  } else {
+    prev       <- tendance_future * sai_futur
+    prev_lower <- prev - 1.96 * sigma * sai_futur
+    prev_upper <- prev + 1.96 * sigma * sai_futur
+  }
+  
+  # ── Nommage des prévisions ───────────────────────────────────
+  annee_debut <- annee_deb + n %/% 12
+  mois_debut  <- (n %% 12) + 1
+  etiquettes  <- character(h)
+  for (i in 1:h) {
+    mois_i        <- ((mois_debut + i - 2) %% 12) + 1
+    annee_i       <- annee_debut + (mois_debut + i - 2) %/% 12
+    etiquettes[i] <- paste(month.abb[mois_i], annee_i)
+  }
+  names(prev) <- etiquettes
+  
+  # ── Affichage console ────────────────────────────────────────
+  cat("\n=== PRÉVISION SUR", h, "PÉRIODES ===\n")
+  cat("Modèle     :", modele, "\n")
+  cat(sprintf("T(t) = %.4f + %.4f*t + %.6f*t² + %.8f*t³ + %.8f*t^4\n\n",
+              a, b, cc, d,e))
+  print(round(prev, 4))
+  
+  # ── Séries temporelles ───────────────────────────────────────
+  ts_serie    <- ts(serie,            start = periode_debu,               frequency = 12)
+  ts_recon    <- ts(serie_recon,      start = periode_debu,               frequency = 12)
+  ts_tendance <- ts(tendance_estimee, start = periode_debu,               frequency = 12)
+  ts_prev1     <- ts(prev,             start = c(annee_debut, mois_debut),  frequency = 12)
+  ts_prev      <- window(ts_prev1,                         end = c(2025,5))
+  ts_prev_final <- window(ts_prev1, start= c(2025,6))
+  ts_lower    <- ts(prev_lower,       start = c(annee_debut, mois_debut),  frequency = 12)
+  ts_upper    <- ts(prev_upper,       start = c(annee_debut, mois_debut),  frequency = 12)
+  ts_tend_fut <- ts(tendance_future,  start = c(annee_debut, mois_debut),  frequency = 12)
+  
+  # ── Palette ──────────────────────────────────────────────────
+  col_obs    <- "#2C3E50"
+  col_recon  <- "#2980B9"
+  col_tend   <- "#8E44AD"
+  col_prev   <- "black"
+  col_ic     <- "#E74C3C33"
+  col_reel   <- "#27AE60"
+  col_grille <- "#ECF0F1"
+  col_final <- "red"
+
+  
+  annee_fin  <- annee_deb + ceiling((n + h) / 12)
+  
+  # ════════════════════════════════════════════════════════════
+  # GRAPHE 1 — Prévision principale
+  # ════════════════════════════════════════════════════════════
+  
+  .plot_prevision <- function() {
+    par(bg = "white", mar = c(5, 5, 4, 2), family = "serif")
+    plot(ts_serie,
+         col  = col_obs, lwd  = 2,
+         main = paste("Décomposition classique — Modèle", modele),
+         xlim = c(annee_deb, annee_fin),
+         ylim = c(83, 112),
+         ylab = "IHPC des services d'enseignement (base 2023 = 100)",
+         xlab = "Année",
+         xaxt = "n", yaxt = "n", bty = "n")
+    axis(1, at     = seq(annee_deb, annee_fin),
+            labels = seq(annee_deb, annee_fin),
+            las = 2, cex.axis = 0.8)
+    axis(2, las = 1, cex.axis = 0.85,
+         col.axis = "gray30", col = "gray70", tck = -0.02)
+    abline(h   = seq(83, 112, by = 5),
+           col = col_grille, lty = 1, lwd = 1)
+    lines(ts_recon,    col = col_recon, lwd = 1.5, lty = 2)
+    lines(ts_tendance, col = col_tend,  lwd = 2,   lty = 1)
+    #lines(ts_tend_fut, col = col_tend,  lwd = 2,   lty = 3)
+    polygon(c(time(ts_lower), rev(time(ts_upper))),
+            c(as.numeric(ts_lower), rev(as.numeric(ts_upper))),
+            col = col_ic, border = NA)
+    
+    lines(ts_lower, col = col_prev, lwd = 1.2, lty = 3)
+    lines(ts_upper, col = col_prev, lwd = 1.2, lty = 3)
+    
+    lines(ts_prev,  col = col_prev, lwd = 2,   lty = 2)
+    points(time(ts_prev), as.numeric(ts_prev),
+           pch = NA, col = col_prev, cex = 1.2)
+    
+    lines(ts_prev_final,  col = col_final, lwd = 2,   lty = 3)
+points(time(ts_prev_final), as.numeric(ts_prev_final),
+       pch = NA, col = col_final, cex = 1.2)
+
+    
+    lines(serie_test, col = col_reel, lty = 1, lwd = 2.5)
+    points(time(serie_test), as.numeric(serie_test),
+           pch = NA, col = col_reel, cex = 1.2)
+    
+    abline(v   = annee_debut + (mois_debut - 1) / 12,
+           col = "gray50", lty = 2, lwd = 1)
+    text(x      = annee_debut + (mois_debut - 1) / 12,
+         y      =  95,
+         labels = "Début prévision",
+         srt    = 90, pos = 2,
+         col    = "gray50", cex = 0.75)
+    legend("topleft",
+           legend = c("Série observée", "Série reconstruite",
+                      "Tendance", 
+                      "Prévision jan2023-mai2025","Prévision_juin-sept_2025", "IC à 95 %",
+                      "Valeurs réelles"),
+           col    = c(col_obs, col_recon, col_tend,
+                      col_prev, col_final,col_prev, col_reel),
+           lty    = c(1, 2, 3, 2,2, NA, 1),
+           lwd    = c(2, 1.5, 2,3, 2, NA, 2.5),
+           pch    = c(NA, NA, NA,NA, NA, NA, NA),
+           fill   = c(NA, NA, NA,NA, NA, col_ic, NA),
+           border = c(NA, NA, NA,NA, NA, "gray80", NA),
+           bty    = "n", cex = 0.75)
+    box(col = "gray80", lwd = 0.8)
+  }
+  
+  # ════════════════════════════════════════════════════════════
+  # GRAPHE 2 — Diagnostic du modèle lm
+  # ════════════════════════════════════════════════════════════
+  
+  .plot_diagnostic <- function() {
+    par(mfrow = c(2,2))
+    plot(y_lm)
+  }
+  
+  # ════════════════════════════════════════════════════════════
+  # GRAPHE 3 — ACF des résidus
+  # ════════════════════════════════════════════════════════════
+  
+  .plot_acf <- function() {
+    acf(residuals(y_lm),
+        main = "ACF des résidus du modèle polynomiale",
+        lag.max = 36,
+        col  = "#2C3E50",
+        lwd  = 2)
+  }
+  
+  # ── Sauvegarde PDF ───────────────────────────────────────────
+  
+  
+  pdf(here::here("Output/figures/graphe_prevision_decomp.pdf"),
+      width = 8, height = 5)
+  .plot_prevision()
+  dev.off()
+  
+  pdf(here::here("Output/figures/graphe_diagnostic_lm_decomp.pdf"),
+      width = 8, height = 6)
+  .plot_diagnostic()
+  dev.off()
+  
+  pdf(here::here("Output/figures/graphe_acf_residus_decomp.pdf"),
+      width = 7, height = 4)
+  .plot_acf()
+  dev.off()
+  
+  # ── Affichage dans le HTML ───────────────────────────────────
+  .plot_prevision()
+  .plot_diagnostic()
+  .plot_acf()
+  
+  # ── Retour ───────────────────────────────────────────────────
+  return(invisible(list(
+    prevision          = round(prev, 4),
+    serie_reconstruite = round(serie_recon, 4),
+    tendance           = round(tendance_estimee, 4),
+    residus            = residuals(y_lm),
+    modele_lm          = y_lm
+  )))
+}
+
+result <- prevision(base2, 12, "additif", 33, 2015, c(2015,1))
+result$prevision
+result$serie_reconstruite
+```
+
+# Evaluation -- EQM et couverture
+
+```{r}
+
+# ── Tableau 1 : Prévisions vs Valeurs observées ──────────────
+#mois_prediction    <- c("Juin 2025","Juillet 2025","Août 2025","Septembre 2025")
+  serie_test <- window(base_ensei, start = c(2025,6), end = c(2025,9))
+
+prev_finale <- ts(result$prevision, end = c(2025,9))
+ prev_finale <- window(prev_finale, start = c(2025,6), end = c(2025,9))
+
+erreurs_liss_decomposition <- as.numeric(serie_test) - as.numeric(prev_finale)
+
+df_liss_decomposition <- data.frame(
+  #Mois                     = mois_prediction,
+  Valeur_prévue          = round(as.numeric(prev_finale), 4),
+  Valeur_observée        = round(as.numeric(serie_test), 4),
+  Erreur          = round(erreurs_liss_decomposition, 4)
+  ,
+  check.names = FALSE
+)
+
+save_latex_table(
+  x        = df_liss_decomposition,
+  filename = "tab_prevision_vs_observe_décomposition",
+  caption  = "Prévisions et valeurs observées --- Prévision par décomposition 
+              (Juin--Septembre 2025)",
+  label    = "tab:prevision_vs_observe_décomposition"
+)
+
+# ── Tableau 2 : EQM  ──────────────────────────────────
+EQM_liss_decomposition  <- mean(erreurs_liss_decomposition^2)
+
+rmse_liss_decomposition <- sqrt(EQM_liss_decomposition)
+
+indicateur <- c("EQM", "RMSE")
+valeur1 <- c(EQM_liss_decomposition , rmse_liss_decomposition)
+
+
+ df_eqm_decomposition <- data.frame(
+  `Indicateur`       = indicateur,
+  `Valeur`      = round(valeur1, 6),
+  check.names = FALSE
+  )
+
+
+save_latex_table(
+  x        = df_eqm_decomposition,
+  filename = "tab_eqm_décomposition",
+  caption  = "Erreur quadratique moyenne--- Décomposition",
+  label    = "tab:eqm_décomposition"
+)
+
+# ── Tableau 3 : Couverture de l'IC à 95 % ───────────────────
+l <- length(base1)
+ecart_type_decomposition   <- sqrt(mean((base1[1:l] - result$serie_reconstruite[1:l])^2, na.rm = TRUE))
+IC_inf_liss_decomposition <- as.numeric(prev_finale) - 1.96 * ecart_type_decomposition
+IC_sup_liss_decomposition <- as.numeric(prev_finale) + 1.96 * ecart_type_decomposition
+dans_IC_decomposition     <- as.numeric(as.numeric(prev_finale)) >= IC_inf_liss_decomposition &
+               as.numeric(prev_finale) <= IC_sup_liss_decomposition
+couverture_liss_decomposition <- mean(dans_IC_decomposition)
+
+df_couverture_decomposition <- data.frame(
+  #Mois              = mois_prediction,
+  `Valeur prédite` = round(as.numeric(prev_finale), 4),
+  `Borne inf. IC`   = round(IC_inf_liss_decomposition, 4),
+  `Borne sup. IC`   = round(IC_sup_liss_decomposition, 4),
+  `Dans l'IC`       = ifelse(dans_IC_decomposition, "Oui", "Non"),
+  check.names       = FALSE
+)
+
+# Ligne de synthèse
+df_couverture_total_decomposition <- rbind(
+  df_couverture_decomposition,
+  data.frame(
+    #Mois              = "Couverture globale",
+    `Valeur prédite` = NA,
+    `Borne inf. IC`   = NA,
+    `Borne sup. IC`   = NA,
+    `Dans l'IC`       = paste0(round(couverture_liss_decomposition * 100, 0),
+                                "% (",sum(dans_IC_decomposition),"/4)}"),
+    check.names       = FALSE
+  )
+)
+
+save_latex_table(
+  x        = df_couverture_total_decomposition,
+  filename = "tab_couverture_ic_decomposition",
+  caption  = "Couverture de l'intervalle de confiance à 95% --- Prévision par décomposition",
+  label    = "tab:couverture_ic_decomposition"
+)
+
+# ── Affichage console ────────────────────────────────────────
+cat("=== Prévision par décomposition ===\n\n")
+cat(sprintf("  EQM              = %.6f\n", EQM_liss_decomposition))
+cat(sprintf("  Couverture IC 95%% = %.0f%%  \n",
+            couverture_liss_decomposition * 100, sum(dans_IC_decomposition)))
+```
+
+# MODELISATION PAR DECOMPOSITION STOCHASTIQUE
+
+# Désaisonnalisation de la série
+
+```{r}
+base2 <- window(base_ensei, start = c(2015,1), end = c(2022,12))
+n <- length(base2)
+coef_saison <- coef_saisonniers(base2, 12, "additif")
+coef_saison<- as.numeric(coef_saison$Coefficient[1:12])
+
+serie_cvs <- as.numeric(base2) - rep(coef_saison, length.out = n)
+
+
+```
+
+# Vérification de la stationnarité de la série
+
+```{r tests_stationnarite}
+# ── Tests ADF sur serie_cvs ───────────────────────────────────
+#adf_explo1 <- adf.test(serie_cvs, alternative = "explosive")
+#adf_stati1 <- adf.test(serie_cvs, alternative = "stationary")
+
+
+adf_explo1 <- adf.test(base2, alternative = "explosive")
+adf_stati1 <- adf.test(base2, alternative = "stationary")
+
+
+
+# ── Data frame des résultats ──────────────────────────────────
+df_stationnaire1 <- data.frame(
+  Hypothèse_nulle      = c("Série non stationnaire (phi = 1)",
+                            "Série non stationnaire (phi = 1)"),
+  Hypothèse_alternative = c("Explosive (phi > 1)",
+                             "Stationnaire (phi < 1)"),
+  Statistique          = c(round(adf_explo1$statistic, 4),
+                            round(adf_stati1$statistic, 4)),
+  `p-value`            = c(round(adf_explo1$p.value, 4),
+                            round(adf_stati1$p.value, 4)),
+  Lag                  = c(adf_explo1$parameter,
+                            adf_stati1$parameter),
+  Décision             = c(
+    ifelse(adf_explo1$p.value < 0.05,
+           "Rejeter H_0",
+           "Ne pas rejeter H_0"),
+    ifelse(adf_stati1$p.value < 0.05,
+           "Rejeter H_0",
+           "Ne pas rejeter H_0")
+  ),
+  check.names = FALSE
+)
+
+# ── Sauvegarde ───────────────────────────────────────────────
+save_latex_table(
+  x        = df_stationnaire1,
+  filename = "tab_tests_stationnaire1_cvs",
+  caption  = "Tests de Dickey-Fuller augmenté (ADF) sur la série CVS",
+  label    = "tab:tests_stationnaire1_cvs"
+)
+
+print(df_stationnaire1)
+```
+
+Nous avons un modèle à tendance stochastique. Nous allons le stationnariser par différentiations successives.
+
+# Différenciation
+
+```{r }
+
+#d1_serie_cvs <- diff(serie_cvs)
+
+d1_serie_cvs <- diff(base2,differences=1)
+#d1_serie_cvs <- diff(diff(base2, lag=12), differences=1)
+
+adf_explo2 <- adf.test(d1_serie_cvs, alternative= "explosive")
+adf_stati2 <- adf.test(d1_serie_cvs, alternative= "stationary")
+
+
+
+#La série ne présente plus de racine unitaire
+#Nous avons une série stationnaire car la p_value <0.05 donc phi!=1
+
+# ── Data frame des résultats ──────────────────────────────────
+df_stationnaire2 <- data.frame(
+  Hypothèse_nulle      = c("Série non stationnaire (phi = 1)",
+                            "Série non stationnaire (phi = 1)"),
+  Hypothèse_alternative = c("Explosive (phi > 1)",
+                             "Stationnaire (phi < 1)"),
+  Statistique          = c(round(adf_explo2$statistic, 4),
+                            round(adf_stati2$statistic, 4)),
+  `p-value`            = c(round(adf_explo2$p.value, 4),
+                            round(adf_stati2$p.value, 4)),
+  Lag                  = c(adf_explo2$parameter,
+                            adf_stati2$parameter),
+  Décision             = c(
+    ifelse(adf_explo2$p.value < 0.05,
+           "Rejeter H_0",
+           "Ne pas rejeter H_0"),
+    ifelse(adf_stati2$p.value < 0.05,
+           "Rejeter H_0",
+           "Ne pas rejeter H_0")
+  ),
+  check.names = FALSE
+)
+
+# ── Sauvegarde ───────────────────────────────────────────────
+save_latex_table(
+  x        = df_stationnaire2,
+  filename = "tab_tests_stationnaire2_cvs",
+  caption  = "Tests de Dickey-Fuller augmenté (ADF) sur la série différenciée",
+  label    = "tab:tests_stationnaire2_cvs"
+)
+
+print(df_stationnaire2)
+  
+  
+```
+
+# Etude des fonctions d'autocorrélation (ACF et le PACF)
+
+```{r graph ACF_PACF}
+
+par(mfrow=c(1,2))
+acf(d1_serie_cvs, lag.max = 24)
+pacf(d1_serie_cvs,lag.max = 24)
+par(mfrow=c(1,1))
+
+```
+
+# Choix du modèle sarima
+
+```{r arima_modelisation, dev='png', fig.show='hold'}
+
+# ── Modèles candidats ────────────────────────────────────────
+#m1 <-   arima(base2, order = c(1, 1, 1))
+
+m1 <- arima(base2, order = c(2,1,2), seasonal = list(order = c(2,0,1), period = 12))
+  #arima(serie_cvs, order = c(1, 1, 0))
+m2 <- arima(base2, order = c(0,1,0), seasonal = list(order = c(2,0,1), period = 12))
+m3 <- arima(base2, order = c(2,1,0), seasonal = list(order = c(2,0,1), period = 12))
+
+
+# ── Significativité des coefficients ─────────────────────────
+noms <- c("SARIMA(2,1,2)(2,0,1)[12]", "SARIMA(0,1,0)(2,0,1)[12]", "SARIMA(1,1,1)(2,0,1)[12]")
+
+for (i in seq_along(list(m1,m2,m3))) {
+  m      <- list(m1,m2,m3)[[i]]
+  tstat  <- m$coef / sqrt(diag(m$var.coef))
+  pvalue <- 2 * (1 - pnorm(abs(tstat)))
+  cat("===", noms[i], "===\n")
+  print(round(pvalue, 4))
+  cat("\n")
+}
+
+# ── Comparaison AIC / BIC ─────────────────────────────────────
+df_aic_bic <- data.frame(
+  Modèle = noms,
+  AIC    = round(c(AIC(m1), AIC(m2), AIC(m3)), 4),
+  BIC    = round(c(BIC(m1), BIC(m2), BIC(m3)), 4)
+)
+
+save_latex_table(
+  x        = df_aic_bic,
+  filename = "tab_selection_arima",
+  caption  = "Comparaison des modèles ARIMA candidats (AIC / BIC)",
+  label    = "tab:selection_arima"
+)
+print(df_aic_bic)
+# ── Diagnostic : sauvegarde PDF + PNG ────────────────────────
+modeles      <- list(m1, m2, m3)
+noms_fichier <- c("sarima1", "sarima2", "sarima3")
+
+for (i in seq_along(modeles)) {
+
+  # ── PDF ──────────────────────────────────────────────────
+  pdf(here::here("Output/figures",
+                 paste0("graphe_diagnostic_", noms_fichier[i], ".pdf")),
+      width = 8, height = 6)
+  tsdiag(modeles[[i]],
+         main = paste("Diagnostic —", noms[i]))
+  dev.off()
+
+  # ── PNG ──────────────────────────────────────────────────
+  png(here::here("Output/figures",
+                 paste0("graphe_diagnostic_", noms_fichier[i], ".png")),
+      width = 800, height = 600, res = 100)
+  tsdiag(modeles[[i]],
+         main = paste("Diagnostic —", noms[i]))
+  dev.off()
+
+  # ── Affichage HTML ────────────────────────────────────────
+  tsdiag(modeles[[i]],
+         main = paste("Diagnostic —", noms[i]))
+}
+
+modele_retenu <-m2
+cat("\n=== MODÈLE RETENU : SARIMA(0,1,0)(2,0,1)[12]===\n")
+print(summary(modele_retenu))
+
+```
+
+# Prévision
+
+```{r arima_prevision, dev='png', fig.show='hold'}
+
+
+h <- 33
+
+n <- length(base2)
+t <- 1:n
+
+  serie_test <- window(base_ensei, start = c(2023,1), end = c(2025,9))
+
+
+# ── Coefficients saisonniers ─────────────────────────────────
+sai_estim  <- coef_saisonniers(base2, 12, "additif")
+sai_estim  <- as.numeric(sai_estim$Coefficient[1:12])
+
+# ── Prévision ARIMA ──────────────────────────────────────────
+prev_arima <- predict(modele_retenu, n.ahead = h)
+prev_cvs   <- as.numeric(prev_arima$pred)
+prev_se    <- as.numeric(prev_arima$se)
+
+
+# ── Saisonnalité future ───────────────────────────────────────
+
+t_futur         <- (n + 1):(n + h)
+mois_futur <- ((t_futur - 1) %% 12) + 1
+sai_futur  <- sai_estim[mois_futur]
+
+# ── Prévision finaleSARIMA(1,2,3)(1,1,0)[12] + sai_futur ──
+prevision  <- prev_cvs + sai_futur
+prev_lower <- prevision - qnorm(0.975) * prev_se
+prev_upper <- prevision +qnorm(0.975) * prev_se
+
+# ── Nommage ───────────────────────────────────────────────────
+annee_debut <- 2015 + n %/% 12
+mois_debut  <- (n %% 12) + 1
+etiquettes  <- character(h)
+for (i in 1:h) {
+  mois_i        <- ((mois_debut + i - 2) %% 12) + 1
+  annee_i       <- annee_debut + (mois_debut + i - 2) %/% 12
+  etiquettes[i] <- paste(month.abb[mois_i], annee_i)
+}
+names(prevision) <- etiquettes
+
+cat("=== PRÉVISION ===\n")
+print(round(prevision, 4))
+
+# ── Série reconstruite ───────────────────────────────────────
+serie_recon_ar <- as.numeric(fitted(modele_retenu)) + rep(sai_estim, length.out = n)
+
+# ── Séries temporelles ────────────────────────────────────────
+ts_base    <- ts(base2,          start = c(2015,1),           frequency = 12)
+ts_recon   <- ts(serie_recon_ar, start = c(2015,1),           frequency = 12)
+ts_prev1    <- ts(prevision,      start = c(annee_debut, mois_debut), frequency = 12)
+ts_prev <- window(ts_prev1, end = c(2025,5))
+ts_prev_final <- window(ts_prev1, start= c(2025,6))
+ts_lower   <- ts(prev_lower,     start = c(annee_debut, mois_debut), frequency = 12)
+ts_upper   <- ts(prev_upper,     start = c(annee_debut, mois_debut), frequency = 12)
+
+
+# ── Palette ───────────────────────────────────────────────────
+col_obs   <- "#2C3E50"
+col_recon <- "#2980B9"
+col_prev  <- "black"
+col_ic    <- "#E74C3C33"
+col_reel  <- "#27AE60"
+col_final <- "red"
+
+# ── Graphe ───────────────────────────────────────────────────
+pdf(here::here("Output/figures/graphe_prevision_arima.pdf"),
+    width = 8, height = 5)
+
+par(bg = "white", mar = c(5,5,4,2), family = "serif")
+
+plot(ts_base,
+     col  = col_obs, lwd = 2,
+     xlim = c(2015, 2026.2),
+     ylim = c(83, 112),
+     main = "Prévision SARIMA(0,1,0)(2,0,1)[12] + saisonnalité",
+     ylab = "IHPC (base 2023 = 100)",
+     xlab = "Année",
+     xaxt = "n", yaxt = "n", bty = "n")
+
+axis(1, at = seq(2015,2026), labels = seq(2015,2026),
+     las = 2, cex.axis = 0.8)
+axis(2, las = 1, cex.axis = 0.85,
+     col.axis = "gray30", col = "gray70", tck = -0.02)
+
+abline(h   = seq(83,112, by=5),
+       col = "#ECF0F1", lty = 1, lwd = 1)
+
+lines(ts_recon, col = col_recon, lwd = 1.5, lty = 2)
+
+polygon(c(time(ts_lower), rev(time(ts_upper))),
+        c(as.numeric(ts_lower), rev(as.numeric(ts_upper))),
+        col = col_ic, border = NA)
+
+lines(ts_lower, col = col_prev, lwd = 1.2, lty = 3)
+lines(ts_upper, col = col_prev, lwd = 1.2, lty = 3)
+
+lines(ts_prev,  col = col_prev, lwd = 2,   lty = 3)
+points(time(ts_prev), as.numeric(ts_prev),
+       pch = NA, col = col_prev, cex = 1.2)
+
+lines(ts_prev_final,  col = col_final, lwd = 2,   lty = 3)
+points(time(ts_prev_final), as.numeric(ts_prev_final),
+       pch = NA, col = col_final, cex = 1.2)
+
+lines(serie_test, col = col_reel, lwd = 2, lty = 2)
+points(time(serie_test), as.numeric(serie_test),
+       pch = NA, col = col_reel, cex = 1.2)
+
+
+
+abline(v   = 2025 + 5/12,
+       col = "gray50", lty = 2, lwd = 1)
+text(x      = 2025 + 5/12,
+     y      = 100,
+     labels = "Début de la prévision",
+     col    = "gray50",
+     cex    = 0.7,
+     pos    = 2,    # pos=2 → texte à gauche de la ligne
+     srt    = 90)
+
+
+legend("topleft",
+       legend = c("Série observée", "Série reconstruite",
+                  "Prévision jan2023-mai2025","Prévision_juin-sept_2025", "IC à 95%", "Valeurs réelles"),
+       col    = c(col_obs, col_recon, col_prev,col_final, col_prev, col_reel),
+       lty    = c(1,2,2.5,3,NA,1), lwd = c(2,1.5,2,2,NA,2.5),
+       pch    = c(NA,NA,NA,NA,NA,NA),
+       fill   = c(NA,NA,NA,NA,col_ic,NA),
+       border = c(NA,NA,NA,NA,"gray80",NA),
+       bty    = "n", cex = 0.75)
+
+box(col = "gray80", lwd = 0.8)
+dev.off()
+
+# Affichage HTML
+par(bg = "white", mar = c(5,5,4,2), family = "serif")
+plot(ts_base,
+     col  = col_obs, lwd = 2,
+     xlim = c(2015, 2026.2),
+     ylim = c(83, 112),
+     main = "Prévision SARIMA(0,1,0)(2,0,1)[12] + saisonnalité",
+     ylab = "IHPC (base 2023 = 100)",
+     xlab = "Année",
+     xaxt = "n", yaxt = "n", bty = "n")
+axis(1, at = seq(2015,2026), labels = seq(2015,2026),
+     las = 2, cex.axis = 0.8)
+
+axis(2, las = 1, cex.axis = 0.85,
+     col.axis = "gray30", col = "gray70", tck = -0.02)
+
+abline(h = seq(83,112,by=5), col = "#ECF0F1", lty=1, lwd=1)
+
+lines(ts_recon, col = col_recon, lwd = 1.5, lty = 2)
+
+polygon(c(time(ts_lower), rev(time(ts_upper))),
+        c(as.numeric(ts_lower), rev(as.numeric(ts_upper))),
+        col = col_ic, border = NA)
+
+lines(ts_lower, col = col_prev, lwd = 1.2, lty = 3)
+lines(ts_upper, col = col_prev, lwd = 1.2, lty = 3)
+
+lines(ts_prev,  col = col_prev, lwd = 2,   lty = 2.5)
+points(time(ts_prev), as.numeric(ts_prev),
+       pch = NA, col = col_prev, cex = 1.2)
+
+lines(ts_prev_final,  col = col_final, lwd = 2,   lty = 3)
+points(time(ts_prev_final), as.numeric(ts_prev_final),
+       pch = NA, col = col_final, cex = 1.2)
+
+lines(serie_test, col = col_reel, lwd = 2, lty = 3)
+points(time(serie_test), as.numeric(serie_test),
+       pch = NA, col = col_reel, cex = 1.2)
+
+abline(v   = 2025 + 5/12,
+       col = "gray50", lty = 2, lwd = 1)
+text(x      = 2025 + 5/12,
+     y      = 100,
+     labels = "Début de la prévision",
+     col    = "gray50",
+     cex    = 0.7,
+     pos    = 2,    # pos=2 → texte à gauche de la ligne
+     srt    = 90)
+
+
+
+legend("topleft",
+       legend = c("Série observée", "Série reconstruite",
+                  "Prévision jan2023-mai2025","Prévision_juin-sept_2025", "IC à 95%", "Valeurs réelles"),
+       col    = c(col_obs, col_recon, col_prev,col_final, col_prev, col_reel),
+       lty    = c(1,2,2.5,3,NA,1), lwd = c(2,1.5,2,2,NA,2.5),
+       pch    = c(NA,NA,NA,NA,NA,NA),
+       fill   = c(NA,NA,NA,NA,col_ic,NA),
+       border = c(NA,NA,NA,NA,"gray80",NA),
+       bty    = "n", cex = 0.75)
+box(col = "gray80", lwd = 0.8)
+
+# ── Tableau des prévisions ────────────────────────────────────
+df_prev_arima <- data.frame(
+  Mois              = etiquettes,
+  `Prévision`       = round(prevision, 4),
+  `Borne inf. IC`   = round(prev_lower, 4),
+  `Borne sup. IC`   = round(prev_upper, 4),
+  check.names       = FALSE
+)
+
+save_latex_table(
+  x        = df_prev_arima,
+  filename = "tab_prevision_arima",
+  caption  = "Prévisions  SARIMA(0,1,0)(2,0,1)[12]--- Juin--Septembre 2025",
+  label    = "tab:prevision_arima"
+)
+```
+
+# Evaluation -- EQM et couverture
+
+```{r}
+
+# ── Tableau 1 : Prévisions vs Valeurs observées ──────────────
+#mois_prediction    <- c("Juin 2025","Juillet 2025","Août 2025","Septembre 2025")
+serie_teste <- window(base_ensei, start = c(2025,6), end = c(2025,9))
+
+#ts_prev1    <- ts(prevision,      start = c(annee_debut, mois_debut), frequency = 12)
+#ts_prev_final <- window(ts_prev1, start= c(2025,6), end = c(2025,9))
+
+
+erreurs_liss_arima <- as.numeric(serie_teste) - as.numeric(ts_prev_final)
+
+df_liss_arima <- data.frame(
+ # Mois                     = mois_prediction,
+  Valeur_prévue          = round(as.numeric(ts_prev_final), 4),
+  Valeur_observée        = round(as.numeric(serie_teste), 4),
+  Erreur          = round(erreurs_liss_arima, 4),
+  check.names = FALSE
+)
+print(df_liss_arima)
+
+save_latex_table(
+  x        = df_liss_arima,
+  filename = "tab_prevision_vs_observe_arima",
+  caption  = "Prévisions et valeurs observées --- Prévision aima
+              (Juin--Septembre 2025)",
+  label    = "tab:prevision_vs_observe_arima"
+)
+
+# ── Tableau 2 : EQM  ──────────────────────────────────
+EQM_liss_arima  <- mean(erreurs_liss_arima^2)
+
+rmse_liss_arima <- sqrt(EQM_liss_arima)
+
+indicateur <- c("EQM", "RMSE")
+valeur2 <- c(EQM_liss_arima , rmse_liss_arima)
+
+
+ df_eqm_arima <- data.frame(
+  `Indicateur`       = indicateur,
+  `Valeur`      = round(valeur2, 6),
+  check.names = FALSE
+  )
+
+print(df_eqm_arima)
+
+save_latex_table(
+  x        = df_eqm_arima,
+  filename = "tab_eqm_arima",
+  caption  = "Erreur quadratique moyenne--- Sarima",
+  label    = "tab:eqm__arima"
+)
+
+# ── Tableau 3 : Couverture de l'IC à 95 % ───────────────────
+l <- length(base1)
+ecart_type_arima   <- sqrt(mean((base1[1:l] - serie_recon_ar[1:l])^2, na.rm = TRUE))
+IC_inf_liss_arima <- as.numeric(ts_prev_final) - 1.96 * ecart_type_arima
+IC_sup_liss_arima <- as.numeric(ts_prev_final) + 1.96 * ecart_type_arima
+dans_IC_arima     <- as.numeric(ts_prev_final) >= IC_inf_liss_arima &
+               as.numeric(ts_prev_final) <= IC_sup_liss_arima
+couverture_liss_arima <- mean(dans_IC_arima)
+
+df_couverture_arima<- data.frame(
+ # Mois              = mois_prediction,
+  `Valeur prédite` = round(as.numeric(ts_prev_final), 4),
+  `Borne inf. IC`   = round(IC_inf_liss_arima, 4),
+  `Borne sup. IC`   = round(IC_sup_liss_arima ,4),
+  `Dans l'IC`       = ifelse(dans_IC_arima, "Oui", "Non"),
+  check.names       = FALSE
+)
+
+
+
+# Ligne de synthèse
+df_couverture_total_arima <- rbind(
+  df_couverture_arima,
+  data.frame(
+    #Mois              = "Couverture globale",
+    `Valeur prédite` = NA,
+    `Borne inf. IC`   = NA,
+    `Borne sup. IC`   = NA,
+    `Dans l'IC`       = paste0(round(couverture_liss_arima * 100, 0),
+                                "% (",sum(dans_IC_arima),"/4)}"),
+    check.names       = FALSE
+  )
+)
+
+print(df_couverture_total_arima)
+
+save_latex_table(
+  x        = df_couverture_total_arima,
+  filename = "tab_couverture_ic_arima",
+  caption  = "Couverture de l'intervalle de confiance à 95% --- Prévision SARIMA",
+  label    = "tab:couverture_ic_arima"
+)
+
+# ── Affichage console ────────────────────────────────────────
+cat("=== Prévision par décomposition ===\n\n")
+cat(sprintf("  EQM              = %.6f\n", EQM_liss_arima))
+cat(sprintf("  Couverture IC 95%% = %.0f%%  \n",
+            couverture_liss_arima * 100, sum(dans_IC_arima)))
+```
+
+# Comparaison des prévisions
+
+```{r comparaison_approches}
+approche <- c("Lissage exponentiel (Holt-Winters)",
+              "Décomposition classique",
+              "Modélisation stochastique (SARIMA)")
+
+eqm  <- c(EQM_liss_HOLT_WINTERS,
+           EQM_liss_decomposition,
+           EQM_liss_arima)
+
+rmse <- sqrt(eqm)
+
+couverture <- c(
+  paste0(round(couverture_liss_HOLT_WINTERS         * 100, 0), "%"),
+  paste0(round(couverture_liss_decomposition * 100, 0), "%"),
+  paste0(round(couverture_liss_arima * 100, 0), "%")
+)
+
+df_comparaison <- data.frame(
+  `Approche`              = approche,
+  `EQM`                   = round(eqm,  6),
+  `RMSE`                  = round(rmse, 6),
+  `Couverture IC (95\\%)` = couverture,
+  check.names             = FALSE
+)
+
+print(df_comparaison)
+
+save_latex_table(
+  x        = df_comparaison,
+  filename = "tab_comparaison_approche",
+  caption  = "Comparaison des approches de modélisation 
+              (Juin--Septembre 2025)",
+  label    = "tab:comparaison_approche"
+)
+```
+
+#Prévision d'octobre à décembre 2025
+
+# Prévision
+
+```{r arima_prevision_finale, dev='png', fig.show='hold'}
+
+
+h <- 36
+
+n <- length(base2)
+t <- 1:n
+
+  serie_test <- window(base_ensei, start = c(2023,1), end = c(2025,9))
+
+
+# ── Coefficients saisonniers ─────────────────────────────────
+sai_estim  <- coef_saisonniers(base2, 12, "additif")
+sai_estim  <- as.numeric(sai_estim$Coefficient[1:12])
+
+# ── Prévision ARIMA ──────────────────────────────────────────
+prev_arima <- predict(modele_retenu, n.ahead = h)
+prev_cvs   <- as.numeric(prev_arima$pred)
+prev_se    <- as.numeric(prev_arima$se)
+
+
+# ── Saisonnalité future ───────────────────────────────────────
+
+t_futur         <- (n + 1):(n + h)
+mois_futur <- ((t_futur - 1) %% 12) + 1
+sai_futur  <- sai_estim[mois_futur]
+
+# ── Prévision finaleSARIMA(1,2,3)(1,1,0)[12] + sai_futur ──
+prevision  <- prev_cvs + sai_futur
+prev_lower <- prevision - qnorm(0.975) * prev_se
+prev_upper <- prevision +qnorm(0.975) * prev_se
+
+# ── Nommage ───────────────────────────────────────────────────
+annee_debut <- 2015 + n %/% 12
+mois_debut  <- (n %% 12) + 1
+etiquettes  <- character(h)
+for (i in 1:h) {
+  mois_i        <- ((mois_debut + i - 2) %% 12) + 1
+  annee_i       <- annee_debut + (mois_debut + i - 2) %/% 12
+  etiquettes[i] <- paste(month.abb[mois_i], annee_i)
+}
+names(prevision) <- etiquettes
+
+cat("=== PRÉVISION ===\n")
+print(round(prevision, 4))
+
+# ── Série reconstruite ───────────────────────────────────────
+serie_recon_ar <- as.numeric(fitted(modele_retenu)) + rep(sai_estim, length.out = n)
+
+# ── Séries temporelles ────────────────────────────────────────
+ts_base    <- ts(base2,          start = c(2015,1),           frequency = 12)
+ts_recon   <- ts(serie_recon_ar, start = c(2015,1),           frequency = 12)
+ts_prev1    <- ts(prevision,      start = c(annee_debut, mois_debut), frequency = 12)
+ts_prev <- window(ts_prev1, end = c(2025,5))
+
+ts_prev_final <- window(ts_prev1, start= c(2025,6))
+ts_lower   <- ts(prev_lower,     start = c(annee_debut, mois_debut), frequency = 12)
+ts_upper   <- ts(prev_upper,     start = c(annee_debut, mois_debut), frequency = 12)
+
+
+# ── Palette ───────────────────────────────────────────────────
+col_obs   <- "#2C3E50"
+col_recon <- "#2980B9"
+col_prev  <- "black"
+col_ic    <- "#E74C3C33"
+col_reel  <- "#27AE60"
+col_final <- "red"
+
+# ── Graphe ───────────────────────────────────────────────────
+pdf(here::here("Output/figures/graphe_prevision_arima_finale.pdf"),
+    width = 8, height = 5)
+
+par(bg = "white", mar = c(5,5,4,2), family = "serif")
+
+plot(ts_base,
+     col  = col_obs, lwd = 2,
+     xlim = c(2015, 2026.2),
+     ylim = c(83, 112),
+     main = "Prévision SARIMA(0,1,0)(2,0,1)[12] + saisonnalité",
+     ylab = "IHPC (base 2023 = 100)",
+     xlab = "Année",
+     xaxt = "n", yaxt = "n", bty = "n")
+
+axis(1, at = seq(2015,2026), labels = seq(2015,2026),
+     las = 2, cex.axis = 0.8)
+axis(2, las = 1, cex.axis = 0.85,
+     col.axis = "gray30", col = "gray70", tck = -0.02)
+
+abline(h   = seq(83,112, by=5),
+       col = "#ECF0F1", lty = 1, lwd = 1)
+
+lines(ts_recon, col = col_recon, lwd = 1.5, lty = 2)
+
+polygon(c(time(ts_lower), rev(time(ts_upper))),
+        c(as.numeric(ts_lower), rev(as.numeric(ts_upper))),
+        col = col_ic, border = NA)
+
+lines(ts_lower, col = col_prev, lwd = 1.2, lty = 3)
+lines(ts_upper, col = col_prev, lwd = 1.2, lty = 3)
+
+lines(ts_prev,  col = col_prev, lwd = 2,   lty = 3)
+points(time(ts_prev), as.numeric(ts_prev),
+       pch = NA, col = col_prev, cex = 1.2)
+
+lines(ts_prev_final,  col = col_final, lwd = 2,   lty = 3)
+points(time(ts_prev_final), as.numeric(ts_prev_final),
+       pch = NA, col = col_final, cex = 1.2)
+
+lines(serie_test, col = col_reel, lwd = 2, lty = 2)
+points(time(serie_test), as.numeric(serie_test),
+       pch = NA, col = col_reel, cex = 1.2)
+
+
+
+abline(v   = 2025 + 9/12,
+       col = "gray50", lty = 2, lwd = 1)
+text(x      = 2025 + 9/12,
+     y      = 100,
+     labels = "Début de la prévision",
+     col    = "gray50",
+     cex    = 0.7,
+     pos    = 2,    # pos=2 → texte à gauche de la ligne
+     srt    = 90)
+
+
+legend("topleft",
+       legend = c("Série observée", "Série reconstruite",
+                  "Prévision janvier2023-septembre2025","Prévision_octobre-décembre_2025", "IC à 95%", "Valeurs réelles"),
+       col    = c(col_obs, col_recon, col_prev,col_final, col_prev, col_reel),
+       lty    = c(1,2,2.5,3,NA,1), lwd = c(2,1.5,2,2,NA,2.5),
+       pch    = c(NA,NA,NA,NA,NA,NA),
+       fill   = c(NA,NA,NA,NA,col_ic,NA),
+       border = c(NA,NA,NA,NA,"gray80",NA),
+       bty    = "n", cex = 0.75)
+
+box(col = "gray80", lwd = 0.8)
+dev.off()
+
+# Affichage HTML
+par(bg = "white", mar = c(5,5,4,2), family = "serif")
+plot(ts_base,
+     col  = col_obs, lwd = 2,
+     xlim = c(2015, 2026.2),
+     ylim = c(83, 112),
+     main = "Prévision SARIMA(0,1,0)(2,0,1)[12] + saisonnalité",
+     ylab = "IHPC (base 2023 = 100)",
+     xlab = "Année",
+     xaxt = "n", yaxt = "n", bty = "n")
+axis(1, at = seq(2015,2026), labels = seq(2015,2026),
+     las = 2, cex.axis = 0.8)
+
+axis(2, las = 1, cex.axis = 0.85,
+     col.axis = "gray30", col = "gray70", tck = -0.02)
+
+abline(h = seq(83,112,by=5), col = "#ECF0F1", lty=1, lwd=1)
+
+lines(ts_recon, col = col_recon, lwd = 1.5, lty = 2)
+
+polygon(c(time(ts_lower), rev(time(ts_upper))),
+        c(as.numeric(ts_lower), rev(as.numeric(ts_upper))),
+        col = col_ic, border = NA)
+
+lines(ts_lower, col = col_prev, lwd = 1.2, lty = 3)
+lines(ts_upper, col = col_prev, lwd = 1.2, lty = 3)
+
+lines(ts_prev,  col = col_prev, lwd = 2,   lty = 2.5)
+points(time(ts_prev), as.numeric(ts_prev),
+       pch = NA, col = col_prev, cex = 1.2)
+
+lines(ts_prev_final,  col = col_final, lwd = 2,   lty = 3)
+points(time(ts_prev_final), as.numeric(ts_prev_final),
+       pch = NA, col = col_final, cex = 1.2)
+
+lines(serie_test, col = col_reel, lwd = 2, lty = 3)
+points(time(serie_test), as.numeric(serie_test),
+       pch = NA, col = col_reel, cex = 1.2)
+
+abline(v   = 2025 + 9/12,
+       col = "gray50", lty = 2, lwd = 1)
+text(x      = 2025 +9/12,
+     y      = 100,
+     labels = "Début de la prévision",
+     col    = "gray50",
+     cex    = 0.7,
+     pos    = 2,    # pos=2 → texte à gauche de la ligne
+     srt    = 90)
+
+
+
+legend("topleft",
+       legend = c("Série observée", "Série reconstruite",
+                  "Prévision janvier2023-septembre2025","Prévision_octobre-décembre_2025", "IC à 95%", "Valeurs réelles"),
+       col    = c(col_obs, col_recon, col_prev,col_final, col_prev, col_reel),
+       lty    = c(1,2,2.5,3,NA,1), lwd = c(2,1.5,2,2,NA,2.5),
+       pch    = c(NA,NA,NA,NA,NA,NA),
+       fill   = c(NA,NA,NA,NA,col_ic,NA),
+       border = c(NA,NA,NA,NA,"gray80",NA),
+       bty    = "n", cex = 0.75)
+box(col = "gray80", lwd = 0.8)
+
+# ── Tableau des prévisions ────────────────────────────────────
+ts_prev2    <-window(ts_prev1,start= c(2025,10), end = c(2025,12))
+
+
+df_prev_arima_finale <- data.frame(
+  Mois              = c("Octobre 2025", "Novembre 2025", "Décembre 2025"),
+  `Prévision`       = round(as.numeric(ts_prev2), 4),
+  check.names       = FALSE
+)
+
+print(df_prev_arima_finale)
+save_latex_table(
+  x        = df_prev_arima_finale,
+  filename = "tab_prevision_arima_finale",
+  caption  = "Prévisions  SARIMA(0,1,0)(2,0,1)[12]--- octobre-décembre 2025",
+  label    = "tab:prevision_arima_finale"
+)
+```
